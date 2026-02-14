@@ -1,0 +1,19 @@
+services:
+  c2-server:
+    build:
+      context: .
+      target: c2
+    ports:
+      - "50051:50051"
+      - "8081:8081"
+    volumes:
+      - ./uploads:/root/uploads
+  
+  mgmt-server:
+    build:
+      context: .
+      target: mgmt
+    ports:
+      - "8080:8080"
+    depends_on:
+      - c2-server

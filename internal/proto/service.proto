@@ -49,11 +49,12 @@ message Task {
 
 message TaskResult {
     string task_id = 1;
-    string output = 2;
-    string error = 3;
+    string command = 2;
+    string output = 3;
+    string error = 4;
 
     // если скачивание с клеинта
-    string file_name = 4;
-    bytes file_chunk = 5;
-    bool is_last = 6;
+    string file_name = 5;
+    bytes file_chunk = 6;
+    bool is_last = 7;
 }
