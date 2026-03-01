@@ -121,7 +121,7 @@
 
         async function refreshFiles() {
             try {
-                let res = await fetch(`${API_BASE}/api/uploads`);
+                let res = await fetch(`${API_BASE}/api/download`);
                 let files = await res.json();
                 document.getElementById('files').innerHTML = (files || []).map(f => 
                     `<div>${f} <a href="${API_BASE}/download/${f.replaceAll("\\", "%5C")}" target="_blank" style="color:#51998e">[Download]</a></div>`
