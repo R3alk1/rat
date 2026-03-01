@@ -2,3 +2,5 @@ uploads/
 build/
 cmd/hiding/client.exe
 .DS_Store
+*/.DS_Store
+*/*/.DS_Store
