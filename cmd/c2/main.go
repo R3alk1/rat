@@ -79,7 +79,11 @@ func (s *server) GetTask(cntx context.Context, req *pb.PollRequest) (*pb.TaskEnv
 	mu.Unlock()
 	select {
 	case task := <-session.TaskQueue:
-		data, _ := proto.Marshal(task)
+		data, err := proto.Marshal(task)
+		if err != nil {
+			log.Printf("[!!!] Marshal error: %v", err)
+			return nil, err
+		}
 		enc, initV, err := crypto.Encrypt(data, session.SessionKey)
 		if err != nil {
 			return nil, err
@@ -129,15 +133,16 @@ func (s *server) SendResult(stream pb.ClientService_SendResultServer) error {
 
 func logsAppend(command, taskId, output, cmdError string) {
 	logsMu.Lock()
+	defer logsMu.Unlock()
 	timestamp := time.Now().UTC().Add(3 * time.Hour).Format("02-01-2006 15:04:05")
-	cmdLogs = append(cmdLogs, fmt.Sprintf("[%s] %s (%s)\n", timestamp, command, taskId))
+	entry := fmt.Sprintf("[%s] %s (%s)\n", timestamp, command, taskId)
 	if output != "" {
-		cmdLogs = append(cmdLogs, output)
+		entry += "\n" + output
 	}
 	if cmdError != "" {
-		cmdLogs = append(cmdLogs, "Error: "+cmdError)
+		entry += "\nError: " + cmdError
 	}
-	logsMu.Unlock()
+	cmdLogs = append(cmdLogs, entry)
 }
 
 func handleFileChunk(session *ClientSession, res *pb.TaskResult) {
@@ -180,9 +185,11 @@ func apiClients(w http.ResponseWriter, r *http.Request) {
 func apiTask(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	var req struct {
-		Type string `json:"type"`
-		Cmd  string `json:"command"`
-		Path string `json:"path"`
+		Type     string `json:"type"`
+		Cmd      string `json:"command"`
+		Path     string `json:"path"`
+		FileName string `json:"file_name"`
+		FileData []byte `json:"file_data"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 	mu.RLock()
@@ -197,6 +204,8 @@ func apiTask(w http.ResponseWriter, r *http.Request) {
 		Type:     req.Type,
 		Command:  req.Cmd,
 		FilePath: req.Path,
+		FileName: req.FileName,
+		FileData: req.FileData,
 	}
 	session.TaskQueue <- task
 	json.NewEncoder(w).Encode(map[string]string{"status": "queued", "task_id": task.TaskId})

